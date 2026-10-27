@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from datamart.catalog import fetch_catalog
 from datamart.categories import load_keyword_patterns
 from datamart.extract import read_source
 from datamart.load import LOAD_ORDER, load_model
@@ -39,18 +40,37 @@ def extract(data_dir: str, file_name: str, source: str) -> int:
     return len(df)
 
 
-def transform(data_dir: str) -> dict[str, int]:
-    """Build the dimensional model from the staged sources and stage each table."""
+def extract_catalog(data_dir: str, base_url: str) -> int:
+    """Download the product catalog from the API and stage it."""
+    catalog = fetch_catalog(base_url)
+    if catalog.empty:
+        raise ValueError(f"Catalog API returned no products: {base_url}")
+
+    staging = Path(data_dir) / STAGING_DIR
+    staging.mkdir(parents=True, exist_ok=True)
+    catalog.to_pickle(staging / "catalog.pkl")
+    return len(catalog)
+
+
+def transform(data_dir: str, category_source: str) -> dict[str, int]:
+    """Build the dimensional model from the staged sources and stage each table.
+
+    category_source is "api" (categories from the staged catalog) or "static"
+    (keyword rules only).
+    """
     root = Path(data_dir)
     staging = root / STAGING_DIR
     sales = pd.read_pickle(staging / "sales.pkl")
     history = pd.read_pickle(staging / "history.pkl")
+    catalog = pd.read_pickle(staging / "catalog.pkl") if category_source == "api" else None
+    log.info("Category source: %s", category_source)
 
     model, metrics = build_model(
         sales,
         history,
         pd.read_csv(root / SEEDS_DIR / "country_mapping.csv"),
         load_keyword_patterns(root / SEEDS_DIR / "category_keywords.csv"),
+        catalog,
     )
     for table, df in model.items():
         df.to_pickle(staging / f"{table}.pkl")

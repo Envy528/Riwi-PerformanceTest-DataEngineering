@@ -7,11 +7,12 @@ transaction, so running it twice with the same data gives the same result.
 from datetime import datetime, timedelta
 
 from airflow.providers.postgres.hooks.postgres import PostgresHook
-from airflow.sdk import Variable, dag, task
+from airflow.sdk import Connection, Variable, dag, task
 
 from datamart import pipeline
 
 DW_CONN_ID = "dw_postgres"
+CATALOG_CONN_ID = "catalog_api"
 
 default_args = {
     "owner": "datamart",
@@ -45,8 +46,20 @@ def datamart_etl():
         )
 
     @task
+    def extract_catalog() -> int:
+        if Variable.get("datamart_category_source") != "api":
+            print("Category source is 'static'; the catalog API is not called.")
+            return 0
+        conn = Connection.get(CATALOG_CONN_ID)
+        return pipeline.extract_catalog(
+            Variable.get("datamart_data_dir"), f"http://{conn.host}:{conn.port}"
+        )
+
+    @task
     def transform() -> dict[str, int]:
-        return pipeline.transform(Variable.get("datamart_data_dir"))
+        return pipeline.transform(
+            Variable.get("datamart_data_dir"), Variable.get("datamart_category_source")
+        )
 
     @task
     def validate_quality() -> None:
@@ -60,7 +73,7 @@ def datamart_etl():
         finally:
             connection.close()
 
-    [extract_sales(), extract_history()] >> transform() >> validate_quality() >> load_warehouse()
+    [extract_sales(), extract_history(), extract_catalog()] >> transform() >> validate_quality() >> load_warehouse()
 
 
 datamart_etl()

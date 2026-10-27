@@ -54,6 +54,15 @@ services:
       interval: 5s
       retries: 10
 
+  catalog-api:
+    build: ./api
+    image: datamart-catalog-api:local
+    ports: ["${CATALOG_API_PORT:-8000}:8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      retries: 10
+
   adminer:
     image: adminer:5
     environment:
@@ -77,6 +86,8 @@ services:
         airflow connections add dw_postgres \
           --conn-type postgres --conn-host dw-db --conn-port 5432 \
           --conn-schema "$${DW_DB}" --conn-login "$${DW_USER}" --conn-password "$${DW_PASSWORD}"
+        airflow connections delete catalog_api || true
+        airflow connections add catalog_api --conn-type http --conn-host catalog-api --conn-port 8000
         airflow variables import /opt/airflow/config/variables.json
 
   airflow-apiserver:

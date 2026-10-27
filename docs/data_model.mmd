@@ -1,0 +1,78 @@
+erDiagram
+    dim_date ||--o{ fact_sales : date_key
+    dim_product ||--o{ fact_sales : product_key
+    dim_customer ||--o{ fact_sales : customer_key
+    dim_country ||--o{ fact_sales : country_key
+    dim_date ||--o{ fact_returns : date_key
+    dim_product ||--o{ fact_returns : product_key
+    dim_customer ||--o{ fact_returns : customer_key
+    dim_country ||--o{ fact_returns : country_key
+    dim_date ||--o{ fact_daily_product_revenue : date_key
+    dim_product ||--o{ fact_daily_product_revenue : product_key
+
+    dim_date {
+        int date_key PK
+        date full_date
+        smallint year
+        smallint quarter
+        smallint month
+        varchar month_name
+        smallint day
+        boolean is_weekend
+    }
+    dim_product {
+        int product_key PK
+        varchar stock_code UK
+        varchar description
+        varchar category
+        smallint description_variants
+    }
+    dim_customer {
+        int customer_key PK
+        varchar customer_id UK "GUEST when missing"
+        boolean is_identified
+    }
+    dim_country {
+        int country_key PK
+        char country_code UK
+        varchar country_name
+    }
+    fact_sales {
+        int sales_key PK
+        varchar invoice_no
+        int date_key FK
+        int product_key FK
+        int customer_key FK
+        int country_key FK
+        timestamptz invoice_ts_utc
+        int quantity
+        numeric unit_price
+        numeric gross_revenue
+    }
+    fact_returns {
+        int return_key PK
+        varchar invoice_no
+        int date_key FK
+        int product_key FK
+        int customer_key FK
+        int country_key FK
+        timestamptz invoice_ts_utc
+        varchar return_type "cancellation or adjustment"
+        int quantity
+        numeric unit_price
+        numeric return_amount
+    }
+    fact_daily_product_revenue {
+        int date_key PK, FK
+        int product_key PK, FK
+        numeric gross_revenue
+        numeric return_amount
+        numeric net_revenue
+    }
+    rejection_log {
+        int rejection_key PK
+        varchar source
+        varchar invoice_no
+        varchar stock_code
+        varchar reason
+    }

@@ -1,0 +1,9 @@
+[project]
+name = "catalog-api"
+version = "0.1.0"
+description = "Mock of DataMart's legacy product catalog API"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "fastapi==0.162.0",
+    "uvicorn==0.54.0",
+]

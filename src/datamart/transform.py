@@ -91,12 +91,18 @@ def enrich(df: pd.DataFrame, country_map: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def build_products(df: pd.DataFrame, patterns: dict[str, re.Pattern]) -> pd.DataFrame:
+def build_products(
+    df: pd.DataFrame,
+    patterns: dict[str, re.Pattern],
+    catalog: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     """One row per stock code with its canonical name, category and name variants.
 
     Canonical name: the most frequent description among sales lines (falling
     back to all lines for products that were never sold); ties go to the most
     recent description.
+    Category: taken from the catalog API when one is given; products missing
+    from the catalog, or runs without it, use the keyword rules.
     """
     named = df.dropna(subset=["description"])
     sales_named = named[named["line_type"] == "sale"]
@@ -118,6 +124,9 @@ def build_products(df: pd.DataFrame, patterns: dict[str, re.Pattern]) -> pd.Data
     products = products.merge(ranked[["stock_code", "description"]], on="stock_code", how="left")
     products["description"] = products["description"].fillna(UNKNOWN_DESCRIPTION)
     products["category"] = products["description"].map(lambda d: classify(d, patterns))
+    if catalog is not None:
+        from_catalog = products["stock_code"].map(catalog.set_index("stock_code")["category"])
+        products["category"] = from_catalog.fillna(products["category"])
 
     variants = named.groupby("stock_code")["description"].nunique()
     products["description_variants"] = (
@@ -132,6 +141,7 @@ def build_model(
     history: pd.DataFrame,
     country_map: pd.DataFrame,
     patterns: dict[str, re.Pattern],
+    catalog: pd.DataFrame | None = None,
 ) -> tuple[dict[str, pd.DataFrame], dict[str, int]]:
     """Run the full transformation.
 
@@ -157,7 +167,7 @@ def build_model(
     )
     customers.insert(0, "customer_key", range(1, len(customers) + 1))
 
-    products = build_products(lines, patterns)
+    products = build_products(lines, patterns, catalog)
 
     lines = (
         lines.merge(countries[["country_key", "country_code"]], on="country_code")
@@ -208,6 +218,11 @@ def build_model(
         "rows_rejected": len(rejections),
         "sales_lines": len(fact_sales),
         "return_lines": len(fact_returns),
+        "products_missing_in_catalog": (
+            int((~products["stock_code"].isin(catalog["stock_code"])).sum())
+            if catalog is not None
+            else len(products)
+        ),
     }
     model = {
         "dim_country": countries,
