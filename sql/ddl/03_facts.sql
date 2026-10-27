@@ -1,4 +1,4 @@
--- Grain: one row per valid sales invoice line (quantity > 0, unit_price > 0).
+-- One row per valid sales invoice line (quantity > 0, unit_price > 0).
 CREATE TABLE IF NOT EXISTS dw.fact_sales (
     sales_key       SERIAL PRIMARY KEY,
     invoice_no      VARCHAR(20)   NOT NULL,
@@ -8,13 +8,11 @@ CREATE TABLE IF NOT EXISTS dw.fact_sales (
     country_key     INTEGER       NOT NULL REFERENCES dw.dim_country (country_key),
     invoice_ts_utc  TIMESTAMPTZ   NOT NULL,
     quantity        INTEGER       NOT NULL CHECK (quantity > 0),
-    unit_price      NUMERIC(10,3) NOT NULL CHECK (unit_price > 0),
-    gross_revenue   NUMERIC(12,2) NOT NULL,
-    source_country  VARCHAR(50)   NOT NULL,
-    source          VARCHAR(10)   NOT NULL
+    unit_price      NUMERIC(10,2) NOT NULL CHECK (unit_price > 0),
+    gross_revenue   NUMERIC(12,2) NOT NULL
 );
 
--- Grain: one row per return or stock adjustment line (original quantity <= 0).
+-- One row per return or stock adjustment line (original quantity <= 0).
 -- quantity and amount are stored as positive values so net = gross - returns.
 CREATE TABLE IF NOT EXISTS dw.fact_returns (
     return_key      SERIAL PRIMARY KEY,
@@ -26,13 +24,11 @@ CREATE TABLE IF NOT EXISTS dw.fact_returns (
     invoice_ts_utc  TIMESTAMPTZ   NOT NULL,
     return_type     VARCHAR(12)   NOT NULL CHECK (return_type IN ('cancellation', 'adjustment')),
     quantity        INTEGER       NOT NULL CHECK (quantity >= 0),
-    unit_price      NUMERIC(10,3) NOT NULL,
-    return_amount   NUMERIC(12,2) NOT NULL,
-    source_country  VARCHAR(50)   NOT NULL,
-    source          VARCHAR(10)   NOT NULL
+    unit_price      NUMERIC(10,2) NOT NULL,
+    return_amount   NUMERIC(12,2) NOT NULL
 );
 
--- Grain: one row per product per day. Net revenue nets returns of the same product on the same day.
+-- One row per product per day. Net revenue nets returns of the same product on the same day.
 CREATE TABLE IF NOT EXISTS dw.fact_daily_product_revenue (
     date_key       INTEGER       NOT NULL REFERENCES dw.dim_date (date_key),
     product_key    INTEGER       NOT NULL REFERENCES dw.dim_product (product_key),
