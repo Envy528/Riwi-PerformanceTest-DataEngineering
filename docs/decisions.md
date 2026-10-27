@@ -74,6 +74,16 @@ Star schema in the `dw` schema (diagram: `data_model.png`). Every table has a on
 - Foreign keys and `CHECK` constraints (quantity and price > 0 in sales) protect the rules at database level too.
 - All amounts are rounded to 2 decimals.
 
+## Business rules (section 5)
+
+| Rule from the brief | Where it's applied |
+|---|---|
+| Quantity <= 0 is a return or adjustment, never a sale; net must be computable | `transform.enrich` sets `line_type`; sales go to `fact_sales`, the rest to `fact_returns` |
+| Unit price can't be zero or negative in a valid sale; log the rejects | `transform.validate` rejects them as `non_positive_price`; the DDL also has `CHECK (unit_price > 0)` |
+| Every date in UTC | `transform.enrich` reads raw dates as Bogotá time and stores `invoice_ts_utc`; `date_key` uses the UTC date |
+| Product codes upper case and without spaces before matching the catalog | `extract.read_source` strips and upper-cases `StockCode` (and descriptions) right after reading |
+| Gross revenue = quantity x price; net = gross after returns of the same product on the same day | `fact_sales.gross_revenue` and `fact_daily_product_revenue` (`gross_revenue`, `return_amount`, `net_revenue`) |
+
 ## Ambiguous cases (section 5)
 
 - **Transactions without customer ID** (24.9% of lines): kept, assigned to a single `GUEST` customer with `is_identified = false`. Dropping them would have hidden about 15% of revenue, and keeping them makes question 5 possible.
@@ -126,3 +136,13 @@ All amounts are kept in **GBP**, the currency of the source data, and used as th
 - The DAG reads the API address from the Airflow Connection `catalog_api`. The task `extract_catalog` downloads every page and `transform` takes each product's category from it.
 - The Variable `datamart_category_source` switches between `api` (default) and `static` (keyword rules only). If the API is down, setting it to `static` keeps the pipeline running; products missing from the catalog also fall back to the keyword rules.
 - Categories are assigned with keyword rules over the canonical product name. Some ambiguous names will be misclassified, and products that match no keyword go to `Other`. In a real company the category would come from the product master; here the catalog plays that role.
+
+## Limitations and what's left
+
+- **Categories are approximate.** Keyword rules misclassify some ambiguous names and leave about 20% of products in `Other`. A real product master (or a manual review of the top sellers) would fix it.
+- **Supplier country in the catalog is synthetic**, since the source data doesn't have it.
+- **Countries are remapped** (United Kingdom -> Colombia, and so on) to fit the DataMart story, as agreed with the instructor. The original country isn't kept in the warehouse; the seed file shows the mapping.
+- **Amounts stay in GBP**; there is no currency conversion.
+- **Full reload instead of incremental loads.** Both files are static and the same, so each daily run rebuilds the warehouse from scratch. With real daily files, the next step would be loading only the new day and upserting by business key.
+- **One step before `docker compose up`:** `uv run scripts/setup_env.py` creates `.env` with the Airflow secrets, so no secret has to live in the repository.
+- The data model diagram was made quickly with Mermaid and could be cleaner.
