@@ -28,10 +28,14 @@ def _rejections(df: pd.DataFrame, reason: str) -> pd.DataFrame:
     return df[["source", "invoice_no", "stock_code"]].assign(reason=reason)
 
 
-def deduplicate(sales: pd.DataFrame, history: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+def deduplicate(
+    sales: pd.DataFrame, history: pd.DataFrame
+) -> tuple[pd.DataFrame, pd.DataFrame, int]:
     """Drop exact duplicates within each source, then rows already present in sales.
 
-    When the same line exists in both files, the sales copy is kept.
+    When the same line exists in both files, the sales copy is kept. Duplicates
+    within a file are data-quality issues and go to the rejection log; overlap
+    between files is expected by design, so it is only counted.
     """
     rejected = []
     unique_by_source = []
@@ -44,10 +48,8 @@ def deduplicate(sales: pd.DataFrame, history: pd.DataFrame) -> tuple[pd.DataFram
     in_sales = unique_history.merge(
         unique_sales[RECORD_KEY], on=RECORD_KEY, how="left", indicator=True
     )["_merge"].eq("both").to_numpy()
-    rejected.append(_rejections(unique_history[in_sales], "duplicate_across_sources"))
-
     combined = pd.concat([unique_sales, unique_history[~in_sales]], ignore_index=True)
-    return combined, pd.concat(rejected, ignore_index=True)
+    return combined, pd.concat(rejected, ignore_index=True), int(in_sales.sum())
 
 
 def validate(df: pd.DataFrame, country_map: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -130,9 +132,12 @@ def build_model(
     history: pd.DataFrame,
     country_map: pd.DataFrame,
     patterns: dict[str, re.Pattern],
-) -> dict[str, pd.DataFrame]:
-    """Run the full transformation and return one DataFrame per destination table."""
-    combined, dup_rejections = deduplicate(sales, history)
+) -> tuple[dict[str, pd.DataFrame], dict[str, int]]:
+    """Run the full transformation.
+
+    Returns one DataFrame per destination table plus batch metrics for logging.
+    """
+    combined, dup_rejections, cross_source_duplicates = deduplicate(sales, history)
     valid, rule_rejections = validate(combined, country_map)
     lines = enrich(valid, country_map)
 
@@ -196,7 +201,15 @@ def build_model(
     )
     rejections.insert(0, "rejection_key", range(1, len(rejections) + 1))
 
-    return {
+    metrics = {
+        "rows_read_sales": len(sales),
+        "rows_read_history": len(history),
+        "duplicates_across_sources": cross_source_duplicates,
+        "rows_rejected": len(rejections),
+        "sales_lines": len(fact_sales),
+        "return_lines": len(fact_returns),
+    }
+    model = {
         "dim_country": countries,
         "dim_customer": customers,
         "dim_product": products,
@@ -205,3 +218,4 @@ def build_model(
         "fact_daily_product_revenue": daily,
         "rejection_log": rejections,
     }
+    return model, metrics

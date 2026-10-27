@@ -47,7 +47,7 @@ def table_signature(cursor) -> str:
 def main() -> int:
     sales = read_source(RAW / "online_retail_transactions.zip", "sales")
     history = read_source(RAW / "online_retail.zip", "history")
-    model = build_model(
+    model, metrics = build_model(
         sales,
         history,
         pd.read_csv(SEEDS / "country_mapping.csv"),
@@ -60,12 +60,16 @@ def main() -> int:
     for table, df in model.items():
         print(f"  {table:<28} {len(df):>9,}")
 
+    print("\nBatch metrics")
+    for name, value in metrics.items():
+        print(f"  {name:<28} {value:>9,}")
+
     print("\nRejections by source and reason")
     print(rejections.groupby(["source", "reason"]).size().to_string())
 
     print("\n1. Reconciliation")
     unique_lines = len(pd.concat([sales, history]).drop_duplicates(subset=RECORD_KEY))
-    rule_rejections = (~rejections["reason"].str.startswith("duplicate")).sum()
+    rule_rejections = (rejections["reason"] != "duplicate_in_source").sum()
     accounted = len(model["fact_sales"]) + len(model["fact_returns"]) + rule_rejections
     print(f"  unique lines: {unique_lines:,} | sales + returns + rule rejections: {accounted:,}")
     results.append(check("every unique line is accounted for", unique_lines == accounted))
