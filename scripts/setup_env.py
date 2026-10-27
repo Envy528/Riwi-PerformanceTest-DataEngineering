@@ -17,6 +17,7 @@ generated = {
     "AIRFLOW_FERNET_KEY": base64.urlsafe_b64encode(os.urandom(32)).decode(),
     "AIRFLOW_JWT_SECRET": secrets.token_urlsafe(32),
     "AIRFLOW_UID": str(os.getuid()) if hasattr(os, "getuid") else "50000",
+    "AIRFLOW_API_SECRET_KEY": secrets.token_urlsafe(32),
 }
 
 new_lines = []
