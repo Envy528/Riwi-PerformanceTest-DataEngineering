@@ -1,0 +1,5 @@
+{
+    "datamart_data_dir": "/opt/airflow/data",
+    "datamart_sales_file": "raw/online_retail_transactions.zip",
+    "datamart_history_file": "raw/online_retail.zip"
+}
