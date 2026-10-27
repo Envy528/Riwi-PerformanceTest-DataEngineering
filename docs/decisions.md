@@ -36,3 +36,12 @@ Each record gets only its first failing reason.
 - **Idempotency:** every run rebuilds the warehouse from the full source files. `load_warehouse` truncates the model tables and reloads them with `COPY` inside a single transaction, restarting the ID counters and inserting rows in a fixed order. Running the DAG twice gives exactly the same rows and keys; if the load fails halfway, the transaction rolls back and the previous data stays. `scripts/verify_pipeline.py` proves it by loading twice and comparing a hash of every table.
 - `validate_quality` stops the run before loading if any check fails (reconciliation, no sales with quantity or price <= 0, etc.).
 - Airflow Connection: `dw_postgres`. Airflow Variables: `datamart_data_dir`, `datamart_sales_file`, `datamart_history_file`.
+
+## Currency
+
+All amounts are kept in **GBP**, the currency of the source data, and used as the single reporting currency. The brief's problem is that managers can't compare countries because each one uses a different currency; reporting everything in one currency solves that. Converting to COP, MXN and PEN would need made-up exchange rates and would bring that problem back.
+
+## Countries and time zone
+
+- The source countries (38, mostly United Kingdom) were mapped to DataMart's three countries with `data/seeds/country_mapping.csv`: United Kingdom and Australia go to Colombia, and the rest alternate between Mexico and Peru by number of rows. `scripts/build_country_mapping.py` rebuilds that file. The mapping is by source country, so an invoice or customer never ends up split across countries.
+- Raw timestamps are read as Bogotá time (DataMart is a Colombian company, so its production server is assumed to be there) and converted to UTC. Colombia has no daylight saving time, so the conversion is always +5 hours.

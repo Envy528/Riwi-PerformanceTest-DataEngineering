@@ -54,6 +54,14 @@ services:
       interval: 5s
       retries: 10
 
+  adminer:
+    image: adminer:5
+    environment:
+      ADMINER_DEFAULT_SERVER: dw-db
+    ports: ["${ADMINER_PORT:-8081}:8080"]
+    depends_on:
+      dw-db: { condition: service_healthy }
+
   airflow-init:
     <<: *airflow-common
     entrypoint: /bin/bash
