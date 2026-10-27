@@ -20,6 +20,8 @@ Everything runs in Docker:
 | `catalog-api` | Mock product catalog (FastAPI) | http://localhost:8000/docs |
 | `adminer` | Web SQL client for the warehouse | http://localhost:8081 |
 
+> Want to see everything working step by step? Follow [`docs/demo.md`](docs/demo.md).
+
 ## Requirements
 
 - Docker with Docker Compose v2 (4 GB of memory for Docker is enough).
@@ -130,6 +132,7 @@ uv run scripts/verify_pipeline.py
 
 ## Documentation
 
+- [`docs/demo.md`](docs/demo.md): step-by-step demo with every command, from `git clone` to cleanup.
 - [`docs/decisions.md`](docs/decisions.md): data model, ambiguous cases, idempotency and other decisions.
 - [`docs/business_questions.md`](docs/business_questions.md): results for each question and the recommendation.
 - [`docs/data_model.png`](docs/data_model.png): data model diagram (source in `docs/data_model.mmd`).

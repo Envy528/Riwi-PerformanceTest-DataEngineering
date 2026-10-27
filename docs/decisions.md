@@ -8,6 +8,57 @@ Notes on how the pipeline was built and why. Each decision points to the section
 - **Each file has its own encoding.** Sales is ISO-8859-1 and history is UTF-8. Reading both the same way turns `£` into `Â£` and breaks matching.
 - The link in the brief for the second dataset was broken; we used `thedevastator/online-retail-transaction-data`.
 
+## Exploration (section 6)
+
+`scripts/explore.py` profiles both files (`uv run scripts/explore.py`, about 10 seconds). Both files gave the same numbers, so they're shown once.
+
+**Structure.** 541,909 rows and 8 columns. The history file has an extra `index` column, which is dropped.
+
+| Column | Raw type | Notes |
+|---|---|---|
+| `InvoiceNo` | text | 6 digits. `C` prefix = cancellation, `A` prefix = bad-debt adjustment (3 rows) |
+| `StockCode` | text | Normally 5 digits plus up to 2 letters (`85123A`, `15056BL`) |
+| `Description` | text | Mixed case and extra spaces in some rows |
+| `Quantity` | integer | Negative for returns and adjustments |
+| `InvoiceDate` | text | `M/D/YYYY H:MM`, no time zone |
+| `UnitPrice` | decimal | Written `18` in one file and `18.0` in the other |
+| `CustomerID` | text | `17850` in one file, `17850.0` in the other |
+| `Country` | text | 38 distinct values |
+
+Everything is read as text first so nothing is converted silently; types are applied during the transformation.
+
+**Nulls.**
+
+| Column | Nulls | Share |
+|---|---|---|
+| `CustomerID` | 135,080 | 24.9% |
+| `Description` | 1,454 | 0.3% (all with price 0 and no customer) |
+| Others | 0 | — |
+
+**Ranges.**
+
+| Field | Min | Max |
+|---|---|---|
+| Date | 2010-12-01 08:26 | 2011-12-09 12:50 (305 days with sales) |
+| Quantity | -80,995 | 80,995 (one huge order, later cancelled) |
+| Unit price | -11,062.06 | 38,970.00 |
+
+**Quality issues found and what we did with each.**
+
+| Issue | Rows | Decision |
+|---|---|---|
+| Exact duplicate rows | 5,268 | Rejected, `duplicate_in_source` |
+| Quantity <= 0 with `C` invoice | 9,288 | Return (`cancellation`). Every `C` invoice has a negative quantity |
+| Quantity <= 0 without `C` | 1,336 | Stock adjustment (`adjustment`). All have price 0 |
+| Price <= 0 with quantity > 0 | 1,181 | Rejected, `non_positive_price` (fewer in the log because some also fail the code rule first) |
+| Stock codes that aren't products | 2,995 | Rejected, `non_product_code`. Top ones: `POST` 1,256, `DOT` 710, `M` 572, `C2` 144, `D` 77 |
+| Codes with more than one description | 645 of 3,958 | Canonical name. Only 3 differ just by case; the rest are warehouse notes |
+| Missing `CustomerID` | 135,080 | Kept as `GUEST` |
+
+**Distributions.** United Kingdom has 91.4% of the rows, then Germany (1.8%), France (1.6%) and EIRE (1.5%). There are 4,372 distinct customers and 3,958 distinct stock codes.
+
+**Overlap between sources.** After fixing the three formatting differences (encoding, price format, customer format), all 536,641 unique lines of one file match the other.
+
 ## Data model
 
 Star schema in the `dw` schema (diagram: `data_model.png`). Every table has a one-line comment in `sql/ddl/` saying what one row means.
@@ -51,12 +102,12 @@ Each record gets only its first failing reason.
 ## DAG and idempotency (section 6)
 
 - `datamart_etl` runs every day at 02:00 UTC (`0 2 * * *`), with `catchup=False` and one run at a time.
-- Tasks: `extract_sales` and `extract_history` (in parallel) -> `transform` -> `validate_quality` -> `load_warehouse`.
+- Tasks: `extract_sales`, `extract_history` and `extract_catalog` (in parallel) -> `transform` -> `validate_quality` -> `load_warehouse`.
 - Each task has 2 retries (1 minute apart) and a 15-minute timeout.
 - Tasks pass data through a staging folder (`data/processed/`), not XCom. It's overwritten on every run.
 - **Idempotency:** every run rebuilds the warehouse from the full source files. `load_warehouse` truncates the model tables and reloads them with `COPY` inside a single transaction, restarting the ID counters and inserting rows in a fixed order. Running the DAG twice gives exactly the same rows and keys; if the load fails halfway, the transaction rolls back and the previous data stays. `scripts/verify_pipeline.py` proves it by loading twice and comparing a hash of every table.
 - `validate_quality` stops the run before loading if any check fails (reconciliation, no sales with quantity or price <= 0, etc.).
-- Airflow Connection: `dw_postgres`. Airflow Variables: `datamart_data_dir`, `datamart_sales_file`, `datamart_history_file`.
+- Airflow Connections: `dw_postgres` and `catalog_api`. Airflow Variables: `datamart_data_dir`, `datamart_sales_file`, `datamart_history_file`, `datamart_category_source`.
 
 ## Currency
 
