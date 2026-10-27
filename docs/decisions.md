@@ -26,3 +26,13 @@ Notes on how the pipeline was built and why. Each decision points to the section
 | `invalid_date`, `invalid_number`, `missing_stock_code`, `unmapped_country` | Guard rails; no rows hit them with the current data |
 
 Each record gets only its first failing reason.
+
+## DAG and idempotency (section 6)
+
+- `datamart_etl` runs every day at 02:00 UTC (`0 2 * * *`), with `catchup=False` and one run at a time.
+- Tasks: `extract_sales` and `extract_history` (in parallel) -> `transform` -> `validate_quality` -> `load_warehouse`.
+- Each task has 2 retries (1 minute apart) and a 15-minute timeout.
+- Tasks pass data through a staging folder (`data/processed/`), not XCom. It's overwritten on every run.
+- **Idempotency:** every run rebuilds the warehouse from the full source files. `load_warehouse` truncates the model tables and reloads them with `COPY` inside a single transaction, restarting the ID counters and inserting rows in a fixed order. Running the DAG twice gives exactly the same rows and keys; if the load fails halfway, the transaction rolls back and the previous data stays. `scripts/verify_pipeline.py` proves it by loading twice and comparing a hash of every table.
+- `validate_quality` stops the run before loading if any check fails (reconciliation, no sales with quantity or price <= 0, etc.).
+- Airflow Connection: `dw_postgres`. Airflow Variables: `datamart_data_dir`, `datamart_sales_file`, `datamart_history_file`.

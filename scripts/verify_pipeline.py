@@ -1,8 +1,7 @@
 """Run the ETL locally against the dw-db container (DW_PORT, default 5434) and verify its results.
 
 Checks:
-  1. Reconciliation: every unique source line ends up as a sale, a return or a rejection.
-  2. Business rules: no sale with quantity/price <= 0, returns stored as positives.
+  1-2. The same quality checks the DAG runs (reconciliation and business rules).
   3. Idempotency: loading twice produces exactly the same tables.
 
 Run from the project root while Docker is up:
@@ -20,7 +19,8 @@ sys.path.insert(0, "src")
 from datamart.categories import load_keyword_patterns  # noqa: E402
 from datamart.extract import read_source  # noqa: E402
 from datamart.load import LOAD_ORDER, load_model  # noqa: E402
-from datamart.transform import RECORD_KEY, build_model  # noqa: E402
+from datamart.quality import run_checks  # noqa: E402
+from datamart.transform import build_model  # noqa: E402
 
 RAW = Path("data/raw")
 SEEDS = Path("data/seeds")
@@ -67,20 +67,9 @@ def main() -> int:
     print("\nRejections by source and reason")
     print(rejections.groupby(["source", "reason"]).size().to_string())
 
-    print("\n1. Reconciliation")
-    unique_lines = len(pd.concat([sales, history]).drop_duplicates(subset=RECORD_KEY))
-    rule_rejections = (rejections["reason"] != "duplicate_in_source").sum()
-    accounted = len(model["fact_sales"]) + len(model["fact_returns"]) + rule_rejections
-    print(f"  unique lines: {unique_lines:,} | sales + returns + rule rejections: {accounted:,}")
-    results.append(check("every unique line is accounted for", unique_lines == accounted))
-
-    print("\n2. Business rules")
-    fact_sales, fact_returns = model["fact_sales"], model["fact_returns"]
-    results.append(check("no sale with quantity <= 0", (fact_sales["quantity"] > 0).all()))
-    results.append(check("no sale with unit_price <= 0", (fact_sales["unit_price"] > 0).all()))
-    results.append(check("returns stored as positive quantities", (fact_returns["quantity"] >= 0).all()))
-    results.append(check("only 3 DataMart countries", len(model["dim_country"]) == 3))
-    results.append(check("GUEST customer exists", "GUEST" in set(model["dim_customer"]["customer_id"])))
+    print("\n1-2. Reconciliation and business rules")
+    for name, passed in run_checks(model, sales, history):
+        results.append(check(name, passed))
 
     print("\n3. Idempotency (loading twice into dw-db)")
     env = read_env()
